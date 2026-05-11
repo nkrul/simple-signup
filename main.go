@@ -44,7 +44,9 @@ func main() {
 
 	file, err := os.ReadFile(indexFileName)
 	if err != nil {
-		log.Fatal(err)
+		if !errors.Is(err, os.ErrNotExist) {
+			log.Fatal(err)
+		}
 	} else {
 		IndexFile = file
 	}
