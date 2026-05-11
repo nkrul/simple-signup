@@ -15,31 +15,36 @@ import (
 )
 
 //go:embed index.html
-var IndexFile []byte
+var indexFile []byte
 
 func main() {
-	addr := ":8081"
+	addr := "127.0.0.1:8081"
 	fileName := "./signups.csv"
 	indexFileName := "./index.html"
 
 	args := os.Args[1:]
 	for len(args) > 0 {
-		if strings.EqualFold(args[0], "--port") {
-			addr = fmt.Sprintf(":%v", args[1])
+		if strings.EqualFold(args[0], "--addr") || strings.EqualFold(args[0], "--address") {
+			addr = args[1]
 			args = args[2:]
 			continue
 		}
-		if strings.EqualFold(args[0], "--file") {
+		if strings.EqualFold(args[0], "--file") || strings.EqualFold(args[0], "--outputfile") {
 			fileName = args[1]
 			args = args[2:]
 			continue
 		}
-		if strings.EqualFold(args[0], "--index") {
+		if strings.EqualFold(args[0], "--index") || strings.EqualFold(args[0], "--indexfile") {
 			indexFileName = args[1]
 			args = args[2:]
 			continue
 		}
 		break
+	}
+
+	handler := &SignupHandler{
+		OutputFileName: fileName,
+		IndexFile:      indexFile,
 	}
 
 	file, err := os.ReadFile(indexFileName)
@@ -48,10 +53,9 @@ func main() {
 			log.Fatal(err)
 		}
 	} else {
-		IndexFile = file
+		handler.IndexFile = file
 	}
 
-	handler := &SignupHandler{fileName: fileName}
 	handler.init()
 
 	server := &http.Server{
@@ -70,8 +74,9 @@ func main() {
 var _ http.Handler = (*SignupHandler)(nil)
 
 type SignupHandler struct {
-	mu       sync.Mutex
-	fileName string
+	mu             sync.Mutex
+	OutputFileName string
+	IndexFile      []byte
 }
 
 func (obj *SignupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +97,7 @@ func (obj *SignupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" {
 		w.WriteHeader(200)
-		w.Write(IndexFile)
+		w.Write(obj.IndexFile)
 		return
 	}
 	sendRedirectViaHeader(w)
@@ -134,7 +139,7 @@ func (obj *SignupHandler) isEmailValid(email string) bool {
 func (obj *SignupHandler) isEmailNewAndUnique(email string) bool {
 	c := make(chan SignupRecord)
 
-	f, err := os.OpenFile(obj.fileName, os.O_RDONLY, 0644)
+	f, err := os.OpenFile(obj.OutputFileName, os.O_RDONLY, 0644)
 	if err != nil {
 		panic(err)
 	}
@@ -160,7 +165,7 @@ func (obj *SignupHandler) signupEmail(email string) {
 	defer obj.mu.Unlock()
 	if obj.isEmailNewAndUnique(email) {
 
-		f, err := os.OpenFile(obj.fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		f, err := os.OpenFile(obj.OutputFileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -184,10 +189,10 @@ func (obj *SignupHandler) init() {
 	obj.mu.Lock()
 	defer obj.mu.Unlock()
 
-	_, err := os.OpenFile(obj.fileName, os.O_RDWR, 0644)
+	_, err := os.OpenFile(obj.OutputFileName, os.O_RDWR, 0644)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			f, err := os.Create(obj.fileName)
+			f, err := os.Create(obj.OutputFileName)
 			if err != nil {
 				log.Fatal(err)
 			}
