@@ -4,7 +4,6 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -16,7 +15,7 @@ import (
 )
 
 //go:embed index.html
-var indexFile []byte
+var IndexFile []byte
 
 func main() {
 	addr := ":8081"
@@ -47,7 +46,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	} else {
-		indexFile = file
+		IndexFile = file
 	}
 
 	handler := &SignupHandler{fileName: fileName}
@@ -81,7 +80,7 @@ func (obj *SignupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			emails := form["email"]
 			if len(emails) == 1 {
 				email := emails[0]
-				obj.signupEmail(email)
+				obj.signupEmail(strings.TrimSpace(email))
 			}
 		} else {
 			log.Fatal(err)
@@ -91,7 +90,7 @@ func (obj *SignupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == "GET" {
 		w.WriteHeader(200)
-		w.Write(indexFile)
+		w.Write(IndexFile)
 		return
 	}
 	sendRedirectViaHeader(w)
@@ -105,14 +104,6 @@ func sendRedirectViaHeader(w http.ResponseWriter) {
 func sendRedirectAfterPost(w http.ResponseWriter) {
 	w.Header().Add("Location", "/")
 	w.WriteHeader(303)
-}
-
-func (obj *SignupHandler) fileReader() io.Reader {
-	file, err := os.Open(obj.fileName)
-	if err != nil {
-		panic(err)
-	}
-	return file
 }
 
 func (obj *SignupHandler) isEmailValid(email string) bool {
@@ -141,8 +132,13 @@ func (obj *SignupHandler) isEmailValid(email string) bool {
 func (obj *SignupHandler) isEmailNewAndUnique(email string) bool {
 	c := make(chan SignupRecord)
 
+	f, err := os.OpenFile(obj.fileName, os.O_RDONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+
 	go func() {
-		err := gocsv.UnmarshalToChan(obj.fileReader(), c)
+		err := gocsv.UnmarshalToChan(f, c)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -151,7 +147,6 @@ func (obj *SignupHandler) isEmailNewAndUnique(email string) bool {
 		if r.Email == email {
 			return false
 		}
-		fmt.Println(r) // interesting code here
 	}
 	return true
 }
@@ -168,27 +163,18 @@ func (obj *SignupHandler) signupEmail(email string) {
 			log.Fatal(err)
 		}
 
-		strLen := len(email)
-		email = strings.ReplaceAll(email, "\"", "\"\"")
-		if strLen != len(email) || strings.Contains(email, ",") {
-			email = fmt.Sprintf("\"%s\"", email)
-		}
-
-		// if _, err := f.Write([]byte(fmt.Sprintf("\"%s\",%v,%v,%v\n", email, true, false, time.Now().UTC().Format("2006-01-02 15:04:05")))); err != nil {
-		// if _, err := f.Write([]byte(fmt.Sprintf("%s,%v,%v,%v\n", email, true, false, time.Now().UTC().Unix()))); err != nil {
-		if _, err := f.Write([]byte(fmt.Sprintf("%s,%v,%v,%v\n", email, true, false, time.Now().UTC().Format("2006-01-02T15:04:05Z07:00")))); err != nil {
-			log.Fatal(err)
-		}
-
-		// gocsv.DefaultCSVWriter(nil).Writer.Write()
+		csvWriter := gocsv.DefaultCSVWriter(f)
+		csvWriter.Write([]string{
+			email,
+			"true",
+			"false",
+			time.Now().UTC().Format("2006-01-02T15:04:05Z07:00"),
+		})
+		csvWriter.Flush()
 
 		if err := f.Close(); err != nil {
 			log.Fatal(err)
 		}
-
-		fmt.Printf("Signup email: %s\n", email)
-	} else {
-		fmt.Printf("Not new and unique: %v\n", email)
 	}
 }
 
@@ -196,15 +182,18 @@ func (obj *SignupHandler) init() {
 	obj.mu.Lock()
 	defer obj.mu.Unlock()
 
-	_, err := os.Open(obj.fileName)
-	if errors.Is(err, os.ErrNotExist) {
-		f, err := os.Create(obj.fileName)
-		if err != nil {
+	_, err := os.OpenFile(obj.fileName, os.O_RDWR, 0644)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			f, err := os.Create(obj.fileName)
+			if err != nil {
+				log.Fatal(err)
+			}
+			f.Write(([]byte)("Email,Valid,Emailed,UtcSignedUpAt\n"))
+		} else {
 			log.Fatal(err)
 		}
-		f.Write(([]byte)("Email,Valid,Emailed,UtcSignedUpAt\n"))
 	}
-
 }
 
 type SignupRecord struct {
@@ -219,7 +208,6 @@ type DateTime struct {
 }
 
 func (date *DateTime) UnmarshalCSV(csv string) (err error) {
-	fmt.Println("record: ", csv)
 	date.Time,
 		err = time.Parse(time.RFC3339, csv)
 	return err
