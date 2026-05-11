@@ -21,6 +21,7 @@ func main() {
 	addr := "127.0.0.1:8081"
 	fileName := "./signups.csv"
 	indexFileName := "./index.html"
+	redirectpath := "/"
 
 	args := os.Args[1:]
 	for len(args) > 0 {
@@ -39,12 +40,19 @@ func main() {
 			args = args[2:]
 			continue
 		}
+
+		if strings.EqualFold(args[0], "--path") || strings.EqualFold(args[0], "--redirectpath") {
+			redirectpath = args[1]
+			args = args[2:]
+			continue
+		}
 		break
 	}
 
 	handler := &SignupHandler{
 		OutputFileName: fileName,
 		IndexFile:      indexFile,
+		Redirectpath:   redirectpath,
 	}
 
 	file, err := os.ReadFile(indexFileName)
@@ -77,6 +85,7 @@ type SignupHandler struct {
 	mu             sync.Mutex
 	OutputFileName string
 	IndexFile      []byte
+	Redirectpath   string
 }
 
 func (obj *SignupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +101,7 @@ func (obj *SignupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		} else {
 			log.Fatal(err)
 		}
-		sendRedirectAfterPost(w)
+		obj.sendRedirectAfterPost(w)
 		return
 	}
 	if r.Method == "GET" {
@@ -100,16 +109,16 @@ func (obj *SignupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Write(obj.IndexFile)
 		return
 	}
-	sendRedirectViaHeader(w)
+	obj.sendRedirectViaHeader(w)
 
 }
 
-func sendRedirectViaHeader(w http.ResponseWriter) {
-	w.Header().Add("Location", "/")
+func (obj *SignupHandler) sendRedirectViaHeader(w http.ResponseWriter) {
+	w.Header().Add("Location", obj.Redirectpath)
 	w.WriteHeader(302)
 }
-func sendRedirectAfterPost(w http.ResponseWriter) {
-	w.Header().Add("Location", "/")
+func (obj *SignupHandler) sendRedirectAfterPost(w http.ResponseWriter) {
+	w.Header().Add("Location", obj.Redirectpath)
 	w.WriteHeader(303)
 }
 
